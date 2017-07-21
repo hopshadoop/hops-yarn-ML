@@ -180,8 +180,8 @@ class InfluxTensorflow():
                 test = False
                 if i % epoch_size == 0:
                     test = True
-                c, tc = self.training_step(i, test, test, X, Y_, Y, data_train[i*batch_size:batch_size*(i+1)], train_step, sess, col_length, batch_size,
-                                          labels[i*batch_size:batch_size*(i+1)], cross_entropy)
+                c, tc = self.training_step(i, test, test, X, Y_, Y, data_train[i*batch_size:batch_size*(i+1)], train_step,
+                sess, col_length, batch_size, labels[i*batch_size:batch_size*(i+1)], cross_entropy)
                 train_c += c
                 test_c += tc
         print ('train Cost',train_c)
@@ -304,7 +304,8 @@ class InfluxTensorflow():
                 name_g = res['name']
                 x = res['columns'];
                 #print ('Columns',name_g, x)
-                #print ('Columns',name_g, x[0:1] + x[97:98] + x[39:40] + x[44:45] + x[51:52] + x[57:59] + x[64:65] + x[100:101] + ['app id'] )
+                #print ('Columns',name_g, x[0:1] + x[97:98] + x[39:40] + x[44:45] + x[51:52] + x[57:59] \
+                #+ x[64:65] + x[100:101] + ['app id'] )
                 #print ('values',values_g)
 
                 rdd1 = sc.parallelize(values_g)
@@ -321,8 +322,8 @@ class InfluxTensorflow():
                     rdd1_ = rdd1_.map(lambda x: x[0:1] + [float(x[1].replace('application_','').replace('_',''))] + x[2:])
                 else:
                     pass
-
-                rdd1_ = rdd1_.map(lambda x: ((x[0], (x[1]).replace('Hostname=','')), tuple(x[2:]))) # converted to tuple for join/union operation to work properly
+                # converted to tuple for join/union operation to work properly
+                rdd1_ = rdd1_.map(lambda x: ((x[0], (x[1]).replace('Hostname=','')), tuple(x[2:]))) 
 
                 #print ('nm', count, name_g, rdd1_.collect())
                 if count == 0:
@@ -374,7 +375,8 @@ class InfluxTensorflow():
         return rdd1
 
     def get_results_from_mysql_cluster(self):
-        cnx = mysql.connector.connect(user=self.mysql_user, password=self.mysql_user, host=self.mysql_host, database=self.mysql_db, port=self.mysql_port);
+        cnx = mysql.connector.connect(user=self.mysql_user, password=self.mysql_user, host=self.mysql_host,
+                 database=self.mysql_db, port=self.mysql_port);
         cursor = cnx.cursor()
         res = cursor.execute(("select * from jobs_history"))
         return cursor.fetchall()
@@ -384,7 +386,8 @@ class InfluxTensorflow():
         return self.query_batch(query, db="graphite")
 
     def get_results_from_telegraf_cpu(self, time1, time2):
-        #query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ order by time desc".format(self.query_t_cpu, time1, time2)
+        #query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ order by time desc"\
+        #         .format(self.query_t_cpu, time1, time2)
         query = "{0} where cpu =~ /cpu-total/ order by time desc".format(self.query_t_cpu)
         return self.query_batch(query, db="telegraf")
 
@@ -394,12 +397,14 @@ class InfluxTensorflow():
         return self.query_batch(query, db="telegraf")
 
     def get_results_from_graphite_nm(self, time1, time2):
-        #query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} order by time desc limit 100000".format(self.query_rns, time1, time2) # group by /time/,/cpu/,/source/
+        #query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} order by time "+\
+        #        "desc limit 100000".format(self.query_rns, time1, time2) # group by /time/,/cpu/,/source/
         query = "{0} nodemanager where source =~ /container.*$/ order by time desc".format(self.query_rns)
         return self.query_batch(query, db="graphite")
 
     def get_results_from_graphite_spark(self, time1, time2):
-        query = "{0} spark where source =~ /jvm/ and service =~ /driver/ and time > {1} and time < {2} limit 10".format(self.query_rns, time1, time2)
+        query = "{0} spark where source =~ /jvm/ and service =~ /driver/ and time > {1} and time < {2} limit 10"\
+                    .format(self.query_rns, time1, time2)
         return self.query_batch(query, db="graphite")
 
     def get_results_from_graphite_rm(self, time1, time2):
