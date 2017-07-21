@@ -1,0 +1,6 @@
+influxdb_user
+influxdb_pw
+yarn_ip_addr
+mysql_cluster_un_pw
+db_name
+mysql_port
