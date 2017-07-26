@@ -15,7 +15,7 @@ import random
 
 class InfluxTensorflow():
 
-    def __init__(self, hostname, port, username, password, db, mysql_host, mysql_user, mysql_db, mysql_port):
+    def __init__(self, hostname, port, username, password, db, mysql_host, mysql_user, mysql_db, mysql_port, t1, t2):
         self.hostname = hostname
         self.port = port
         self.username = username
@@ -32,6 +32,9 @@ class InfluxTensorflow():
         self.mysql_user = mysql_user
         self.mysql_db = mysql_db
         self.mysql_port = mysql_port
+
+        self.t1 = t1
+        self.t2 = t2
 
         self.rep_None = -1
         self.col_len_spark = 8
@@ -130,15 +133,15 @@ class InfluxTensorflow():
         Y_ = tf.placeholder(tf.float32, [batch_size,], name='Y_') # placeholder for correct answers
 
         # Weights initialised with small random values between -0.2 and +0.2
-        W1 = tf.Variable(tf.truncated_normal([col_length, batch_size], stddev=0.1))
+        W1 = tf.Variable(tf.truncated_normal([col_length, batch_size], stddev=0.09))
         B1 = tf.Variable(tf.zeros([1]))
-        W2 = tf.Variable(tf.truncated_normal([batch_size, batch_size-2], stddev=0.1))
+        W2 = tf.Variable(tf.truncated_normal([batch_size, 6], stddev=0.07))
         B2 = tf.Variable(tf.zeros([1]))
-        W3 = tf.Variable(tf.truncated_normal([batch_size-2, batch_size-4], stddev=0.1))
+        W3 = tf.Variable(tf.truncated_normal([6, 3], stddev=0.2))
         B3 = tf.Variable(tf.zeros([1]))
-        W4 = tf.Variable(tf.truncated_normal([batch_size-4, batch_size-6], stddev=0.1))
+        W4 = tf.Variable(tf.truncated_normal([3, 1], stddev=0.1))
         B4 = tf.Variable(tf.zeros([1]))
-        W5 = tf.Variable(tf.truncated_normal([batch_size-6, 1], stddev=0.1))
+        W5 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
         B5 = tf.Variable(tf.zeros([1]))
 
         # 2. Define the model
@@ -151,19 +154,23 @@ class InfluxTensorflow():
         #Y5 = tf.nn.sigmoid(tf.matmul(Y4, W5) + B5)
         ######## ReLU activation func #######
         Y1 = tf.nn.relu(tf.matmul(X, W1) + B1)
+        Y1 = tf.nn.dropout(Y1, 0.5, noise_shape=None, seed=None,name='dropoutY1')
         Y2 = tf.nn.relu(tf.matmul(Y1, W2) + B2)
+        Y2 = tf.nn.dropout(Y2, 0.5, noise_shape=None, seed=None,name='dropoutY2')
         Y3 = tf.nn.relu(tf.matmul(Y2, W3) + B3)
+        Y3 = tf.nn.dropout(Y3, 0.5, noise_shape=None, seed=None,name='dropoutY3')
         Y4 = tf.nn.relu(tf.matmul(Y3, W4) + B4)
+        Y4 = tf.nn.dropout(Y4, 0.5, noise_shape=None, seed=None,name='dropoutY4')
         Y5 = tf.nn.relu(tf.matmul(Y4, W5) + B5)
 
-        Y = Y5
-        Y = tf.nn.softmax(Y5) # Ylogits
+        Y = Y4
+        #Ys = tf.nn.softmax(Y5) # Ylogits
         # Y_ = tf.reshape(Y, [-1, -1])
-        cross_entropy = tf.reduce_sum(tf.pow(Y - Y_, 2))/(2*batch_size) # reduce_mean
+        cross_entropy = tf.reduce_sum(tf.pow(Y - Y_, 2))/(batch_size) # reduce_mean
 
         # 5. Define an optimizer
         # optimizer = tf.train.GradientDescentOptimizer(0.5)
-        optimizer = tf.train.AdamOptimizer(0.005)  ## do not use gradient descent 0.005
+        optimizer = tf.train.AdamOptimizer(0.008)  ## do not use gradient descent 0.005
         train_step = optimizer.minimize(cross_entropy)
 
         # initialize and train
@@ -180,8 +187,8 @@ class InfluxTensorflow():
                 test = False
                 if i % epoch_size == 0:
                     test = True
-                c, tc = self.training_step(i, test, test, X, Y_, Y, data_train[i*batch_size:batch_size*(i+1)], train_step,
-                sess, col_length, batch_size, labels[i*batch_size:batch_size*(i+1)], cross_entropy)
+                c, tc = self.training_step(i, test, test, X, Y_, Y, data_train[i*batch_size:batch_size*(i+1)], train_step, sess,
+                        col_length, batch_size, labels[i*batch_size:batch_size*(i+1)], cross_entropy)
                 train_c += c
                 test_c += tc
         print ('train Cost',train_c)
@@ -304,8 +311,8 @@ class InfluxTensorflow():
                 name_g = res['name']
                 x = res['columns'];
                 #print ('Columns',name_g, x)
-                #print ('Columns',name_g, x[0:1] + x[97:98] + x[39:40] + x[44:45] + x[51:52] + x[57:59] \
-                #+ x[64:65] + x[100:101] + ['app id'] )
+                #print ('Columns',name_g, x[0:1] + x[97:98] + x[39:40] + x[44:45] + x[51:52] + x[57:59] +\
+                       # x[64:65] + x[100:101] + ['app id'] )
                 #print ('values',values_g)
 
                 rdd1 = sc.parallelize(values_g)
@@ -320,10 +327,13 @@ class InfluxTensorflow():
                     rdd1_ = rdd1.map(lambda x: x[0:1] + x[5:6] + x[8:9] + x[17:18] + x[27:28] + x[29:30] + x[52:57] + x[58:63])
                     rdd1_ = rdd1_.map(lambda x: [ self.rep_None if a == None else a for a in x])
                     rdd1_ = rdd1_.map(lambda x: x[0:1] + [float(x[1].replace('application_','').replace('_',''))] + x[2:])
+                elif source == 'rm':
+                    rdd1_ = rdd1.map(lambda x: x[0:1] + x[12:13] + x[22:25] + x[27:30])
                 else:
                     pass
+
                 # converted to tuple for join/union operation to work properly
-                rdd1_ = rdd1_.map(lambda x: ((x[0], (x[1]).replace('Hostname=','')), tuple(x[2:]))) 
+                rdd1_ = rdd1_.map(lambda x: ((x[0], (x[1]).replace('Hostname=','')), tuple(x[2:])))
 
                 #print ('nm', count, name_g, rdd1_.collect())
                 if count == 0:
@@ -376,7 +386,7 @@ class InfluxTensorflow():
 
     def get_results_from_mysql_cluster(self):
         cnx = mysql.connector.connect(user=self.mysql_user, password=self.mysql_user, host=self.mysql_host,
-                 database=self.mysql_db, port=self.mysql_port);
+              database=self.mysql_db, port=self.mysql_port);
         cursor = cnx.cursor()
         res = cursor.execute(("select * from jobs_history"))
         return cursor.fetchall()
@@ -386,8 +396,8 @@ class InfluxTensorflow():
         return self.query_batch(query, db="graphite")
 
     def get_results_from_telegraf_cpu(self, time1, time2):
-        #query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ order by time desc"\
-        #         .format(self.query_t_cpu, time1, time2)
+        #query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ order by time desc".\
+                 #format(self.query_t_cpu, time1, time2)
         query = "{0} where cpu =~ /cpu-total/ order by time desc".format(self.query_t_cpu)
         return self.query_batch(query, db="telegraf")
 
@@ -397,18 +407,18 @@ class InfluxTensorflow():
         return self.query_batch(query, db="telegraf")
 
     def get_results_from_graphite_nm(self, time1, time2):
-        #query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} order by time "+\
-        #        "desc limit 100000".format(self.query_rns, time1, time2) # group by /time/,/cpu/,/source/
+        #query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} order by time desc limit 100000".\
+                 #format(self.query_rns, time1, time2) # group by /time/,/cpu/,/source/
         query = "{0} nodemanager where source =~ /container.*$/ order by time desc".format(self.query_rns)
         return self.query_batch(query, db="graphite")
 
     def get_results_from_graphite_spark(self, time1, time2):
-        query = "{0} spark where source =~ /jvm/ and service =~ /driver/ and time > {1} and time < {2} limit 10"\
-                    .format(self.query_rns, time1, time2)
+        query = "{0} spark where source =~ /jvm/ and service =~ /driver/ and time > {1} and time < {2} limit 10".\
+                 format(self.query_rns, time1, time2)
         return self.query_batch(query, db="graphite")
 
     def get_results_from_graphite_rm(self, time1, time2):
-        query = "{0} nodemanager where service =~ /yarn.*$/ order by time desc limit 10".format(self.query_rns)
+        query = "{0} resourcemanager where service =~ /yarn.*$/ order by time desc limit 10".format(self.query_rns)
         return self.query_batch(query, db="graphite")
 
     def remv_app_s(self, string):
@@ -422,22 +432,22 @@ class InfluxTensorflow():
         return 'application_' + str.group(1) + '_' + str.group(2)
 
     def get_data_from_influxdb(self):
-        time1 = 1499704325000000000
-        time2 = 1499958768000000000
+        time1 = self.t1
+        time2 = self.t2
 
         results_mysql = self.get_results_from_mysql_cluster()
 
         results_t_cpu = self.get_results_from_telegraf_cpu(time1, time2);
         results_t_mem = self.get_results_from_telegraf_mem(time1, time2);
-        #print ("result_telegraf_cpu", results_t_cpu);
-        #print ("result_telegraf_mem", results_t_mem)
+        print ("result_telegraf_cpu", results_t_cpu);
+        print ("result_telegraf_mem", results_t_mem)
 
         results_g_nm = self.get_results_from_graphite_nm(time1, time2)
         #print "result_g_nm",results_g_nm
 
         results_g_spark = self.get_results_from_graphite_spark(time1, time2)
         result_g_rm = self.get_results_from_graphite_rm(time1, time2)
-        if True: # results_t
+        if results_t: # results_t
 
             sc = SparkContext()
 
@@ -494,7 +504,7 @@ class InfluxTensorflow():
             #    opf.writerow(row)
 
             #print rdd_join.coalesce(1).glom().collect()   # .glom()  # coalesce to reduce  no of partitions
-            #result = self.load_data_into_tensorflow(data, labels)
+            result = self.load_data_into_tensorflow(data, labels)
 
     def get_data_from_csv(self):
         with open('data1.csv', 'rb') as f:
@@ -527,6 +537,11 @@ def parse_args():
                         help='port of InfluxDB http API')
     parser.add_argument('--configfile', type=str, required=False, default='/home/vagrant/yarnml/config.txt',
                         help='path to config file containing username & password')
+    parser.add_argument('--time1', type=int, required=False, default=1499704325000000000,
+                        help='time to fetch data from influxdb from')
+    parser.add_argument('--time2', type=int, required=False, default=1499958768000000000,
+                        help='time to fetch data from influxdb from')
+
 
     return parser.parse_args()
 
@@ -541,6 +556,8 @@ if __name__ == '__main__':
     mysql_user = info[3]
     mysql_db = info[4]
     mysql_port = info[5]
-    indbtf = InfluxTensorflow(args.host, args.port, username, password, 'graphite', mysql_host, mysql_user, mysql_db, mysql_port)
+    indbtf = InfluxTensorflow(args.host, args.port, username, password, 'graphite', mysql_host, mysql_user, mysql_db,
+             mysql_port, args.time1, args.time2)
     indbtf.main()
+
 
