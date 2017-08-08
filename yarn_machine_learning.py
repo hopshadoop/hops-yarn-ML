@@ -36,10 +36,14 @@ class InfluxTensorflow():
         self.t1 = t1
         self.t2 = t2
 
+        self.limit = 10000
+
         self.rep_None = -1
         self.col_len_spark = 8
 
-    def query_batch(self, query, db, epoch='ns'):
+        self.hostname_lookup = {'vagrant':1}
+
+    def query_batch(self, query, db, epoch='s'):
         """
         get results of a query from database
 
@@ -92,7 +96,7 @@ class InfluxTensorflow():
         sess.run(train_step, feed_dict={X: data_train, Y_: labels})
 
         if update_train_data:
-            c = sess.run(Y_, feed_dict={X: data_train, Y_: labels})
+            c = sess.run(Y, feed_dict={X: data_train, Y_: labels})
             train_c.append(c)
 
         """if update_test_data:
@@ -310,7 +314,7 @@ class InfluxTensorflow():
                 values_g = res['values']
                 name_g = res['name']
                 x = res['columns'];
-                #print ('Columns',name_g, x)
+                print ('Columns',name_g, x)
                 #print ('Columns',name_g, x[0:1] + x[97:98] + x[39:40] + x[44:45] + x[51:52] + x[57:59] +\
                        # x[64:65] + x[100:101] + ['app id'] )
                 #print ('values',values_g)
@@ -318,22 +322,30 @@ class InfluxTensorflow():
                 rdd1 = sc.parallelize(values_g)
                 rdd1_ = rdd1 # remove after testing
                 if source == 'nm':
-                    #src = float((res['tags']['source']).replace('ContainerResource_container_e','').replace('_',''))
+                    #print ('Columns',name_g, x[0:1] + x[97:98] + x[39:40] + x[44:45] + x[51:52] + x[57:59] +\
+                    # x[64:65] + x[100:101] + ['app id'] )
 
                     rdd1_ = rdd1.map(lambda x: x[0:1] + x[97:98] + x[39:40] + x[44:45] + x[51:52] + x[57:59] + x[64:65] +\
-                    x[100:101] + [ self.get_appid_from_cont(x[100]) ] )
+                    x[100:101] + [ self.get_appid_from_cont(x[100]) ] ) # x[97]:hostname
                     rdd1_ = rdd1_.map(lambda x: [ self.rep_None if a == None else a for a in x])
+
+                    # converted to tuple for join/union operation to work properly
+                    rdd1_ = rdd1_.map(lambda x: ((x[0], (x[1]).replace('Hostname=','')), tuple(x[2:])))
                 elif source == 'spark':
+                    #print ('Columns',name_g, x[0:1] + x[5:6] + x[8:9] + x[17:18] + x[27:28] + x[29:30] + x[52:57] + x[58:63] )
+
                     rdd1_ = rdd1.map(lambda x: x[0:1] + x[5:6] + x[8:9] + x[17:18] + x[27:28] + x[29:30] + x[52:57] + x[58:63])
                     rdd1_ = rdd1_.map(lambda x: [ self.rep_None if a == None else a for a in x])
                     rdd1_ = rdd1_.map(lambda x: x[0:1] + [float(x[1].replace('application_','').replace('_',''))] + x[2:])
                 elif source == 'rm':
-                    rdd1_ = rdd1.map(lambda x: x[0:1] + x[12:13] + x[22:25] + x[27:30])
+                    print ('Columns',name_g, x[0:1] + x[88:89] + x[32:33] + x[42:43] )
+
+                    rdd1_ = rdd1.map(lambda x: x[0:1] + x[88:89] + x[32:33] + x[42:43]) # x[88]:hostname
+                    rdd1_ = rdd1_.map(lambda x: [ self.rep_None if a == None else a for a in x])
+                    # converted to tuple for join/union operation to work properly
+                    rdd1_ = rdd1_.map(lambda x: ((x[0], (x[1]).replace('Hostname=','')), tuple(x[2:])))
                 else:
                     pass
-
-                # converted to tuple for join/union operation to work properly
-                rdd1_ = rdd1_.map(lambda x: ((x[0], (x[1]).replace('Hostname=','')), tuple(x[2:])))
 
                 #print ('nm', count, name_g, rdd1_.collect())
                 if count == 0:
@@ -395,30 +407,33 @@ class InfluxTensorflow():
         query = "{0} where time > {1} and time < {2} group by /time/".format(self.query_g, time1, time2)
         return self.query_batch(query, db="graphite")
 
-    def get_results_from_telegraf_cpu(self, time1, time2):
-        #query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ order by time desc".\
-                 #format(self.query_t_cpu, time1, time2)
-        query = "{0} where cpu =~ /cpu-total/ order by time desc".format(self.query_t_cpu)
+    def get_results_from_telegraf_cpu(self, time1, time2, offset):
+        #query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ limit {1} offset {2}".\
+                 #format(self.query_t_cpu, time1, time2, self.limit, offset)
+        query = "{0} where cpu =~ /cpu-total/ limit {1} offset {2}".\
+                 format(self.query_t_cpu, self.limit, offset)
         return self.query_batch(query, db="telegraf")
 
-    def get_results_from_telegraf_mem(self, time1, time2):
-        #query = "{0} where time > {1} and time < {2} order by time desc".format(self.query_t_mem, time1, time2)
-        query = "{0} order by time desc".format(self.query_t_mem)
+    def get_results_from_telegraf_mem(self, time1, time2, offset):
+        #query = "{0} where time > {1} and time < {2} limit {3} offset {4}".format(self.query_t_mem, time1, time2, self.limit, offset)
+        query = "{0} limit {1} offset {2}".format(self.query_t_mem, self.limit, offset)
         return self.query_batch(query, db="telegraf")
 
-    def get_results_from_graphite_nm(self, time1, time2):
-        #query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} order by time desc limit 100000".\
-                 #format(self.query_rns, time1, time2) # group by /time/,/cpu/,/source/
-        query = "{0} nodemanager where source =~ /container.*$/ order by time desc".format(self.query_rns)
+    def get_results_from_graphite_nm(self, time1, time2, offset):
+        #query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} limit {3} offset {4}".\
+        #         format(self.query_rns, time1, time2, self.limit, offset) # group by /time/,/cpu/,/source/
+        query = "{0} nodemanager where source =~ /container.*$/ limit {1} offset {2}".\
+                format(self.query_rns, self.limit, offset)
         return self.query_batch(query, db="graphite")
 
-    def get_results_from_graphite_spark(self, time1, time2):
-        query = "{0} spark where source =~ /jvm/ and service =~ /driver/ and time > {1} and time < {2} limit 10".\
-                 format(self.query_rns, time1, time2)
+    def get_results_from_graphite_rm(self, time1, time2, offset):
+        query = "{0} resourcemanager where service =~ /yarn.*$/ and source =~ /ClusterMetrics.*$/ limit {1} offset {2}".\
+                 format(self.query_rns, self.limit, offset)
         return self.query_batch(query, db="graphite")
 
-    def get_results_from_graphite_rm(self, time1, time2):
-        query = "{0} resourcemanager where service =~ /yarn.*$/ order by time desc limit 10".format(self.query_rns)
+    def get_results_from_graphite_spark(self, time1, time2, offset):
+        query = "{0} spark where source =~ /jvm/ and service =~ /driver/ and time > {1} and time < {2} limit {3} offset {4}".\
+                 format(self.query_rns, time1, time2, self.limit, offset)
         return self.query_batch(query, db="graphite")
 
     def remv_app_s(self, string):
@@ -437,74 +452,95 @@ class InfluxTensorflow():
 
         results_mysql = self.get_results_from_mysql_cluster()
 
-        results_t_cpu = self.get_results_from_telegraf_cpu(time1, time2);
-        results_t_mem = self.get_results_from_telegraf_mem(time1, time2);
-        print ("result_telegraf_cpu", results_t_cpu);
-        print ("result_telegraf_mem", results_t_mem)
+        offset0 = 0 # for telegraf, rm DB
+        cc = 0 # count to execute sparkcontext only once
+        while (1): # data from telegraf is fetched in batches
+            results_t_cpu = self.get_results_from_telegraf_cpu(time1, time2, offset0);
+            if results_t_cpu:
+                len_cpu = len(results_t_cpu.raw['series'][0]['values']);
 
-        results_g_nm = self.get_results_from_graphite_nm(time1, time2)
-        #print "result_g_nm",results_g_nm
+                results_t_mem = self.get_results_from_telegraf_mem(time1, time2, offset0);
 
-        results_g_spark = self.get_results_from_graphite_spark(time1, time2)
-        result_g_rm = self.get_results_from_graphite_rm(time1, time2)
-        if results_t: # results_t
+                results_g_rm = self.get_results_from_graphite_rm(time1, time2, offset0);
+                results_g_spark = self.get_results_from_graphite_spark(time1, time2, offset0)
+                #print "results_g_rm",results_g_rm;
 
-            sc = SparkContext()
+                if cc == 0:
+                   sc = SparkContext()
 
-            rdd_join_tele_cpu = self.join_telegraf_metrics(results_t_cpu, sc, 'cpu');
-            #print ("tele_cpu",rdd_join_tele_cpu.collect()); return
-            rdd_join_tele_mem = self.join_telegraf_metrics(results_t_mem, sc, 'mem');
-            #print ("tele_mem",rdd_join_tele_mem.collect()); return
-            rdd_join_t = self.join_rdd(rdd_join_tele_cpu, rdd_join_tele_mem);
-            #print ('rdd_join_tele_cpu_mem',rdd_join_t.collect())
+                offset = 0 # for node manager DB
+                while (1): # data from graphite is fetched in batches
+                    results_g_nm = self.get_results_from_graphite_nm(time1, time2, offset)
+                    if results_g_nm:
+                        len_nm = len(results_g_nm.raw['series'][0]['values'])
+                        #print "result_g_nm",results_g_nm
 
-            rdd_join_g_nm = self.join_graphite_metrics(results_g_nm, sc, 'nm');
-            #print ("nm",rdd_join_g_nm.collect());return
+                        rdd_join_tele_cpu = self.join_telegraf_metrics(results_t_cpu, sc, 'cpu');
+                        #print ("tele_cpu",rdd_join_tele_cpu.collect());return
+                        rdd_join_tele_mem = self.join_telegraf_metrics(results_t_mem, sc, 'mem');
+                        #print ("tele_mem",rdd_join_tele_mem.collect()); return
+                        rdd_join_t = self.join_rdd(rdd_join_tele_cpu, rdd_join_tele_mem);
+                        #print ('rdd_join_tele_cpu_mem',rdd_join_t.collect())"""
 
-            #rdd_join_g_spark = self.join_graphite_metrics(results_g_spark, sc, 'spark')
+                        rdd_join_g_nm = self.join_graphite_metrics(results_g_nm, sc, 'nm');
+                        #print ("rdd_join_g_nm",rdd_join_g_nm.collect()[:2]);
 
-            #rdd_join_g_rm = self.join_graphite_metrics(results_g_rm, sc, 'rm')
+                        rdd_join_g_rm = self.join_graphite_metrics(results_g_rm, sc, 'rm')
 
-            """if not rdd_join_g_spark:
-                rdd_spark = [([0] * self.col_len_nm)]*len(rdd_join_g_nm.collect())
-                rdd_spark = sc.parallelize(rdd_spark)
-                rdd_join = rdd_spark.map(lambda x: (x[0], tuple(x[1:]))); print rdd_join
+                        rdd_join_g_spark = self.join_graphite_metrics(results_g_spark, sc, 'spark');
+
+                        """if not rdd_join_g_spark:
+                            rdd_spark = [([0] * self.col_len_nm)]*len(rdd_join_g_nm.collect())
+                            rdd_spark = sc.parallelize(rdd_spark)
+                            rdd_join = rdd_spark.map(lambda x: (x[0], tuple(x[1:]))); print rdd_join
+                        else:
+                            rdd_join = self.join_rdd(rdd_join_g_nm, rdd_join_g_spark)"""
+
+                        rdd_join_g_nm_t = self.join_rdd(rdd_join_t, rdd_join_g_nm) #join with time & hostname
+
+                        rdd_join_g_nm_rm = self.join_rdd(rdd_join_g_nm, rdd_join_g_rm);
+
+                        rdd_mysql = self.join_mysql_metrics(results_mysql, sc)
+
+                        rdd_join = rdd_join_g_nm
+                        rdd_join = rdd_join.map(lambda x: (x[1][-1], tuple(x[0:]))) # join with app id for MySQL cluster
+
+                        rdd_join_t_nm_mysql = self.join_rdd(rdd_join, rdd_mysql)
+
+                        rdd_join = rdd_join.map(lambda x : [x[1][0][0]] + list(x[1][1]) + list(x[1][2:]) ) # x[0][0] time hostname
+                        
+                        labels_rdd = rdd_join.map(lambda x: int(x[11]) ) # labels are indexed at 9 and 11
+                        """          exclude label from data        """
+                        j = -6 # index of container id
+                        rdd_join = rdd_join.map(lambda x : x[0:5] + [self.hostname_lookup[x[5]]] + x[6:j] +\
+                                   [self.remv_cont_s(x[j])] + [self.remv_app_s(x[j+1])] + x[j+2:] )
+
+                        labels = labels_rdd.collect()
+                        data = rdd_join.collect()
+                        #data = data[:10]
+                        #print ("joined results", data[0])
+                        #print ("labels",labels)
+
+                        #opf = csv.writer(open('data2.csv', 'w'), delimiter=',')
+                        #for row in data:
+                        #    opf.writerow(row)
+
+                        #print rdd_join.coalesce(1).glom().collect()   # .glom()  # coalesce to reduce  no of partitions
+                        result = self.load_data_into_tensorflow(data, labels)
+
+                        if len_nm < self.limit:
+                            break
+                        offset += self.limit
+                    else:
+                        break
+
+                if len_cpu < self.limit:
+                    break
+                offset0 += self.limit
             else:
-                rdd_join = self.join_rdd(rdd_join_g_nm, rdd_join_g_spark)"""
+                break
+            cc += 1
 
-            rdd_join_g_nm_t = self.join_rdd(rdd_join_t, rdd_join_g_nm) #join with time & hostname
-            #print ('join_nm_g_t', rdd_join_g_nm_t.collect());
-
-            #rdd_join = self.join_graphite_metrics(results_t, sc, '')
-            #rdd_join = self.join_telegraf_metrics(results_t, rdd_join, sc)
-
-            rdd_mysql = self.join_mysql_metrics(results_mysql, sc)
-            #print ('rdd_mysql',rdd_mysql.collect()); print '\n'
-
-            rdd_join = rdd_join_g_nm_t.map(lambda x: (x[1][-1], tuple(x[0:]))) # join with app id
-            #print ('rdd_join', rdd_join.collect());
-
-            rdd_join = self.join_rdd(rdd_join, rdd_mysql)
-            #print ('rdd t g nm mysql', rdd_join.collect()[0]);return
-
-            rdd_join = rdd_join.map(lambda x : [x[1][0][0]] + list(x[1][1]) + list(x[1][2:]) ) # x[0][0] time hostname
-            labels_rdd = rdd_join.map(lambda x: int(x[9]) ) # labels are indexed at 9 and 11
-            """          exclude label from data        """
-            j = -6 # index of container id
-            rdd_join = rdd_join.map(lambda x : x[0:9] + x[9:j] + [self.remv_cont_s(x[j])] + [self.remv_app_s(x[j+1])] + x[j+2:] )
-
-            labels = labels_rdd.collect()
-            data = rdd_join.collect()
-            print len(data)
-            #print ("joined results", data[0])
-            #print ("labels",labels)
-
-            #opf = csv.writer(open('data2.csv', 'w'), delimiter=',')
-            #for row in data:
-            #    opf.writerow(row)
-
-            #print rdd_join.coalesce(1).glom().collect()   # .glom()  # coalesce to reduce  no of partitions
-            result = self.load_data_into_tensorflow(data, labels)
 
     def get_data_from_csv(self):
         with open('data1.csv', 'rb') as f:
@@ -537,9 +573,9 @@ def parse_args():
                         help='port of InfluxDB http API')
     parser.add_argument('--configfile', type=str, required=False, default='/home/vagrant/yarnml/config.txt',
                         help='path to config file containing username & password')
-    parser.add_argument('--time1', type=int, required=False, default=1499704325000000000,
+    parser.add_argument('--time1', type=int, required=False, default=1491030086000000000,
                         help='time to fetch data from influxdb from')
-    parser.add_argument('--time2', type=int, required=False, default=1499958768000000000,
+    parser.add_argument('--time2', type=int, required=False, default=1501031301000000000,
                         help='time to fetch data from influxdb from')
 
 
@@ -556,8 +592,7 @@ if __name__ == '__main__':
     mysql_user = info[3]
     mysql_db = info[4]
     mysql_port = info[5]
-    indbtf = InfluxTensorflow(args.host, args.port, username, password, 'graphite', mysql_host, mysql_user, mysql_db,
-             mysql_port, args.time1, args.time2)
+    indbtf = InfluxTensorflow(args.host, args.port, username, password, 'graphite', mysql_host, mysql_user, mysql_db, mysql_port,
+             args.time1, args.time2)
     indbtf.main()
-
 
