@@ -64,8 +64,8 @@ class InfluxTensorflow():
             offset += limit
             break
 
-    def training_step(self, i, update_test_data, update_train_data, X, Y_, Y, data_train, train_step, sess, col_length,
-                      batch_size, labels, cross_entropy):
+    def training_step(self, i, update_test_data, update_train_data, X, Y_, Y, data_train, data_test, train_step, sess,
+                      col_length, batch_size, labels, labels_test, cross_entropy, accuracy):
         """
         traininig the machine learning model on specific iterations
 
@@ -90,20 +90,24 @@ class InfluxTensorflow():
         ####### evaluating model performance for printing purposes
         train_c = []
         test_c = []
+        train_a = []
+        test_a = []
 
         # feed values include Python scalars, strings, lists, or numpy ndarray
         # the backpropagation training step
         sess.run(train_step, feed_dict={X: data_train, Y_: labels})
 
         if update_train_data:
-            c = sess.run(Y, feed_dict={X: data_train, Y_: labels})
+            a, c = sess.run([accuracy,cross_entropy], feed_dict={X: data_train, Y_: labels})
+            train_a.append(a)
             train_c.append(c)
 
-        """if update_test_data:
-            c = sess.run([cross_entropy], feed_dict={X: data_test, Y_: labels})
-            test_c.append(c)"""
+        if update_test_data and len(data_test) > 0:
+            a, c = sess.run([accuracy,cross_entropy], feed_dict={X: data_train, Y_: labels_test})
+            test_a.append(a)
+            test_c.append(c)
 
-        return (train_c, test_c)
+        return (train_c, test_c, train_a, test_a)
 
     def initialize_session(self):
         #init = tf.initialize_all_variables()
@@ -112,7 +116,7 @@ class InfluxTensorflow():
         sess.run(init)
         return sess
 
-    def train_model(self, data, labels):
+    def train_model(self, data, data_test, labels, labels_test):
         """
         train the machine learning Model
 
@@ -122,59 +126,105 @@ class InfluxTensorflow():
 
         total_data_size = len(data) # total rows of data
         batch_size = 10
+        epoch_size = 5000;
+
         training_iter = total_data_size / batch_size
 
+    #     batch_size = total_data_size / training_iter
         col_length = len(data[0])
 
         data_train = data
-        # data_train = np.array(data, dtype=np.float32)
-        # print (data_train.shape)
-        # labels = np.array(labels, dtype=np.float32)
-        # print (labels.shape);
+        data_train = np.array(data, dtype=np.float32)
+    #     data_train /= np.std(data_train, axis=0)
+        data_test = np.array(data_test, dtype=np.float32)
+    #     data_test /= np.std(data_test, axis=0)
+    #     print (data_train.shape)
+    #     labels = np.array(labels, dtype=np.float32)
+    #     print (labels.shape);
 
         # 1. Define Variables and Placeholders
         X = tf.placeholder(tf.float32, [batch_size, col_length], name='X') #the first dimension (None) will index the images
         Y_ = tf.placeholder(tf.float32, [batch_size,], name='Y_') # placeholder for correct answers
 
+        X = tf.nn.batch_normalization(
+        X,
+        50, #mean
+        0.8, #variance
+        5, #offset
+        3, #scale
+        0.005, #variance_epsilon
+        )
+
         # Weights initialised with small random values between -0.2 and +0.2
-        W1 = tf.Variable(tf.truncated_normal([col_length, batch_size], stddev=0.09))
+        W1 = tf.Variable(tf.truncated_normal([col_length, 6], stddev=0.09))
         B1 = tf.Variable(tf.zeros([1]))
-        W2 = tf.Variable(tf.truncated_normal([batch_size, 6], stddev=0.07))
+        W2 = tf.Variable(tf.truncated_normal([6, 3], stddev=0.08))
         B2 = tf.Variable(tf.zeros([1]))
-        W3 = tf.Variable(tf.truncated_normal([6, 3], stddev=0.2))
-        B3 = tf.Variable(tf.zeros([1]))
-        W4 = tf.Variable(tf.truncated_normal([3, 1], stddev=0.1))
+        W3 = tf.Variable(tf.truncated_normal([3, 1], stddev=0.2))
+        B3 = tf.Variable(tf.ones([1]))
+
+        W4 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
         B4 = tf.Variable(tf.zeros([1]))
         W5 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
         B5 = tf.Variable(tf.zeros([1]))
+        W6 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
+        B6 = tf.Variable(tf.zeros([1]))
+        W7 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
+        B7 = tf.Variable(tf.zeros([1]))
+        W8 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
+        B8 = tf.Variable(tf.zeros([1]))
+        W9 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
+        B9 = tf.Variable(tf.zeros([1]))
+        W10 = tf.Variable(tf.truncated_normal([1, 1], stddev=0.1))
+        B10 = tf.Variable(tf.zeros([1]))
 
         # 2. Define the model
 
         ######## SIGMOID activation func #######
-        #Y1 = tf.nn.sigmoid(tf.matmul(X, W1) + B1)
-        #Y2 = tf.nn.sigmoid(tf.matmul(Y1, W2) + B2)
-        #Y3 = tf.nn.sigmoid(tf.matmul(Y2, W3) + B3)
-        #Y4 = tf.nn.sigmoid(tf.matmul(Y3, W4) + B4)
-        #Y5 = tf.nn.sigmoid(tf.matmul(Y4, W5) + B5)
+    #     Y1 = tf.nn.sigmoid(tf.matmul(X, W1) + B1)
+    #     Y2 = tf.nn.sigmoid(tf.matmul(Y1, W2) + B2)
+    #     Y3 = tf.nn.sigmoid(tf.matmul(Y2, W3) + B3)
+    #     Y4 = tf.nn.sigmoid(tf.matmul(Y3, W4) + B4)
+    #     Y5 = tf.nn.sigmoid(tf.matmul(Y4, W5) + B5)
+
         ######## ReLU activation func #######
         Y1 = tf.nn.relu(tf.matmul(X, W1) + B1)
+    #     Y1 = tf.nn.l2_normalize(Y1, 0, epsilon=1e-12, name=None)
         Y1 = tf.nn.dropout(Y1, 0.5, noise_shape=None, seed=None,name='dropoutY1')
         Y2 = tf.nn.relu(tf.matmul(Y1, W2) + B2)
         Y2 = tf.nn.dropout(Y2, 0.5, noise_shape=None, seed=None,name='dropoutY2')
         Y3 = tf.nn.relu(tf.matmul(Y2, W3) + B3)
         Y3 = tf.nn.dropout(Y3, 0.5, noise_shape=None, seed=None,name='dropoutY3')
         Y4 = tf.nn.relu(tf.matmul(Y3, W4) + B4)
-        Y4 = tf.nn.dropout(Y4, 0.5, noise_shape=None, seed=None,name='dropoutY4')
+    #     Y4 = tf.nn.dropout(Y4, 0.3, noise_shape=None, seed=None,name='dropoutY4')
         Y5 = tf.nn.relu(tf.matmul(Y4, W5) + B5)
+    #     Y5 = tf.nn.dropout(Y5, 1, noise_shape=None, seed=None,name='dropoutY5')
+        Y6 = tf.nn.relu(tf.matmul(Y5, W6) + B6)
+    #     Y6 = tf.nn.dropout(Y6, 0.5, noise_shape=None, seed=None,name='dropoutY6')
+        Y7 = tf.nn.relu(tf.matmul(Y6, W7) + B7)
+    #     Y7 = tf.nn.dropout(Y7, 0.5, noise_shape=None, seed=None,name='dropoutY7')
+        Y8 = tf.nn.relu(tf.matmul(Y7, W8) + B8)
+    #     Y8 = tf.nn.dropout(Y8, 0.5, noise_shape=None, seed=None,name='dropoutY8')
+        Y9 = tf.nn.relu(tf.matmul(Y8, W9) + B9)
+    #     Y9 = tf.nn.dropout(Y9, 0.5, noise_shape=None, seed=None,name='dropoutY9')
+        Y10 = tf.nn.relu(tf.matmul(Y9, W10) + B10)
+    #     Y10 = tf.nn.dropout(Y10, 0.5, noise_shape=None, seed=None,name='dropoutY10')
 
-        Y = Y4
-        #Ys = tf.nn.softmax(Y5) # Ylogits
-        # Y_ = tf.reshape(Y, [-1, -1])
-        cross_entropy = tf.reduce_sum(tf.pow(Y - Y_, 2))/(batch_size) # reduce_mean
+        Y = Y3
+
+        cross_entropy = tf.reduce_sum(tf.pow(Y - Y_, 2))/(2*batch_size) # reduce_mean
+    #     cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(Y, Y_) )
+
+        # Loss function using L2 Regularization
+    #     regularizer = tf.nn.l2_loss(W1); beta = 0.2
+    #     cross_entropy = tf.reduce_mean(cross_entropy + beta * regularizer)
+
+        is_correct = tf.equal(tf.argmax(Y,0), tf.argmax(Y_,0))
+        accuracy = tf.reduce_mean(tf.cast(is_correct, tf.float32))
 
         # 5. Define an optimizer
-        # optimizer = tf.train.GradientDescentOptimizer(0.5)
-        optimizer = tf.train.AdamOptimizer(0.008)  ## do not use gradient descent 0.005
+    #     optimizer = tf.train.GradientDescentOptimizer(0.5)
+        optimizer = tf.train.AdamOptimizer(0.003)  ## do not use gradient descent 0.005
         train_step = optimizer.minimize(cross_entropy)
 
         # initialize and train
@@ -183,19 +233,25 @@ class InfluxTensorflow():
 
         train_c = []
         test_c = []
+        train_a = []
+        test_a = []
 
-        epoch_size = 10;
-
-        for a in range(1):
+        for k in range(50):
             for i in range(training_iter):
                 test = False
                 if i % epoch_size == 0:
                     test = True
-                c, tc = self.training_step(i, test, test, X, Y_, Y, data_train[i*batch_size:batch_size*(i+1)], train_step, sess,
-                        col_length, batch_size, labels[i*batch_size:batch_size*(i+1)], cross_entropy)
+                c, tc, a, ta = self.training_step(k*training_iter+i, test, test, X, Y_, Y, data_train[i*batch_size:batch_size*(i+1)],
+                    data_test[i*batch_size:batch_size*(i+1)], train_step, sess, col_length, batch_size,
+                    labels[i*batch_size:batch_size*(i+1)],labels_test[i*batch_size:batch_size*(i+1)],
+                                      cross_entropy, accuracy)
                 train_c += c
                 test_c += tc
-        print ('train Cost',train_c)
+                train_a += a
+                test_a += ta
+        print ('Train Cost',train_c)
+        print ('Test Cost', test_c)
+        return (train_c, test_c, train_a, test_a, training_iter, epoch_size)
 
     def train_model_test(self, rdd_join):
         """
@@ -274,8 +330,8 @@ class InfluxTensorflow():
         final_state = state
         return final_state
 
-    def load_data_into_tensorflow(self, data, labels):
-        return self.train_model(data, labels)
+    def load_data_into_tensorflow(self, data, data_test, labels, labels_test):
+        return self.train_model(data, data_test, labels, labels_test)
         # return self.train_model_lstm(data)
 
     def get_appid_from_cont(self,cont_id):
@@ -408,27 +464,27 @@ class InfluxTensorflow():
         return self.query_batch(query, db="graphite")
 
     def get_results_from_telegraf_cpu(self, time1, time2, offset):
-        #query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ limit {1} offset {2}".\
-                 #format(self.query_t_cpu, time1, time2, self.limit, offset)
-        query = "{0} where cpu =~ /cpu-total/ limit {1} offset {2}".\
-                 format(self.query_t_cpu, self.limit, offset)
+        query = "{0} where time > {1} and time < {2} and cpu =~ /cpu-total/ limit {3} offset {4}".\
+                 format(self.query_t_cpu, time1, time2, self.limit, offset)
+        #query = "{0} where cpu =~ /cpu-total/ limit {1} offset {2}".\
+        #         format(self.query_t_cpu, self.limit, offset)
         return self.query_batch(query, db="telegraf")
 
     def get_results_from_telegraf_mem(self, time1, time2, offset):
-        #query = "{0} where time > {1} and time < {2} limit {3} offset {4}".format(self.query_t_mem, time1, time2, self.limit, offset)
-        query = "{0} limit {1} offset {2}".format(self.query_t_mem, self.limit, offset)
+        query = "{0} where time > {1} and time < {2} limit {3} offset {4}".format(self.query_t_mem, time1, time2, self.limit, offset)
+        #query = "{0} limit {1} offset {2}".format(self.query_t_mem, self.limit, offset)
         return self.query_batch(query, db="telegraf")
 
     def get_results_from_graphite_nm(self, time1, time2, offset):
-        #query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} limit {3} offset {4}".\
-        #         format(self.query_rns, time1, time2, self.limit, offset) # group by /time/,/cpu/,/source/
-        query = "{0} nodemanager where source =~ /container.*$/ limit {1} offset {2}".\
-                format(self.query_rns, self.limit, offset)
+        query = "{0} nodemanager where source =~ /container.*$/ and time > {1} and time < {2} limit {3} offset {4}".\
+                 format(self.query_rns, time1, time2, self.limit, offset) # group by /time/,/cpu/,/source/
+        #query = "{0} nodemanager where source =~ /container.*$/ limit {1} offset {2}".\
+        #        format(self.query_rns, self.limit, offset)
         return self.query_batch(query, db="graphite")
 
     def get_results_from_graphite_rm(self, time1, time2, offset):
-        query = "{0} resourcemanager where service =~ /yarn.*$/ and source =~ /ClusterMetrics.*$/ limit {1} offset {2}".\
-                 format(self.query_rns, self.limit, offset)
+        query = "{0} resourcemanager where service =~ /yarn.*$/ and source =~ /ClusterMetrics.*$/ and time > {1} and time < {2} limit {3} offset {4}".\
+                 format(self.query_rns, time1, time2, self.limit, offset)
         return self.query_batch(query, db="graphite")
 
     def get_results_from_graphite_spark(self, time1, time2, offset):
@@ -458,8 +514,11 @@ class InfluxTensorflow():
             results_t_cpu = self.get_results_from_telegraf_cpu(time1, time2, offset0);
             if results_t_cpu:
                 len_cpu = len(results_t_cpu.raw['series'][0]['values']);
+                print ('len_cpu',len_cpu);
 
                 results_t_mem = self.get_results_from_telegraf_mem(time1, time2, offset0);
+                print ("result_telegraf_cpu", len(results_t_cpu));
+                print ("result_telegraf_mem", len(results_t_mem));
 
                 results_g_rm = self.get_results_from_graphite_rm(time1, time2, offset0);
                 results_g_spark = self.get_results_from_graphite_spark(time1, time2, offset0)
@@ -486,9 +545,10 @@ class InfluxTensorflow():
                         #print ("rdd_join_g_nm",rdd_join_g_nm.collect()[:2]);
 
                         rdd_join_g_rm = self.join_graphite_metrics(results_g_rm, sc, 'rm')
+                        #print ("rdd_join_g_rm",rdd_join_g_rm.collect()[:2]);
 
                         rdd_join_g_spark = self.join_graphite_metrics(results_g_spark, sc, 'spark');
-
+                        #print ('rdd_join_g_spark',rdd_join_g_spark);
                         """if not rdd_join_g_spark:
                             rdd_spark = [([0] * self.col_len_nm)]*len(rdd_join_g_nm.collect())
                             rdd_spark = sc.parallelize(rdd_spark)
@@ -497,36 +557,48 @@ class InfluxTensorflow():
                             rdd_join = self.join_rdd(rdd_join_g_nm, rdd_join_g_spark)"""
 
                         rdd_join_g_nm_t = self.join_rdd(rdd_join_t, rdd_join_g_nm) #join with time & hostname
+                        #print ('join_nm_g_t', rdd_join_g_nm_t.collect());
 
-                        rdd_join_g_nm_rm = self.join_rdd(rdd_join_g_nm, rdd_join_g_rm);
+                        rdd_join_g_nm_t_rm = self.join_rdd(rdd_join_g_nm, rdd_join_g_rm);
+                        #print ("rdd_join_g_nm_t_rm",rdd_join_g_nm_t_rm.collect());
 
                         rdd_mysql = self.join_mysql_metrics(results_mysql, sc)
+                        #print ('rdd_mysql',rdd_mysql.collect()[0]); print '\n'
 
-                        rdd_join = rdd_join_g_nm
-                        rdd_join = rdd_join.map(lambda x: (x[1][-1], tuple(x[0:]))) # join with app id for MySQL cluster
+                        rdd_join_g_nm_t_rm = rdd_join_g_nm_t.map(lambda x: (x[1][-1], tuple(x[0:]))) # join with app id for MySQL cluster
+                        #print ('rdd_join_nm_appid', rdd_join.collect()[0]);
 
-                        rdd_join_t_nm_mysql = self.join_rdd(rdd_join, rdd_mysql)
+                        rdd_join_g_nm_t_rm_mysql = self.join_rdd(rdd_join_g_nm_t_rm, rdd_mysql)
+                        print ('rdd_join_g_nm_t_rm_mysql',rdd_join_g_nm_t_rm_mysql.collect()[:1])
 
-                        rdd_join = rdd_join.map(lambda x : [x[1][0][0]] + list(x[1][1]) + list(x[1][2:]) ) # x[0][0] time hostname
-                        
-                        labels_rdd = rdd_join.map(lambda x: int(x[11]) ) # labels are indexed at 9 and 11
-                        """          exclude label from data        """
+                        rdd_join = rdd_join_g_nm_t_rm_mysql.map(lambda x : [x[1][0][0]] + list(x[1][1]) + list(x[1][2:]) ) 
+                        # x[0][0] time hostname
+                        # also removing the redundant app id
+                        print ('rdd_final',rdd_join.collect()[:1])
+                        labels_rdd = rdd_join.map(lambda x: int(x[9]) ) # labels are indexed at 9 and 11
+
                         j = -6 # index of container id
-                        rdd_join = rdd_join.map(lambda x : x[0:5] + [self.hostname_lookup[x[5]]] + x[6:j] +\
-                                   [self.remv_cont_s(x[j])] + [self.remv_app_s(x[j+1])] + x[j+2:] )
-
-                        labels = labels_rdd.collect()
-                        data = rdd_join.collect()
-                        #data = data[:10]
-                        #print ("joined results", data[0])
-                        #print ("labels",labels)
+                        """ Remove labels from data """
+                        rdd_join = rdd_join.map(lambda x : x[0:5] + [self.hostname_lookup[x[5]]] + x[6:9] + x[9:j] +\
+                                   x[j+2:j+3] )
+                                   #[self.remv_cont_s(x[j])] + [self.remv_app_s(x[j+1])] + x[j+2:] )
 
                         #opf = csv.writer(open('data2.csv', 'w'), delimiter=',')
                         #for row in data:
                         #    opf.writerow(row)
 
+                        labels = labels_rdd.collect()
+                        data = rdd_join.collect()
+
+                        data_train = data[:len(data)/2]
+                        labels_train = labels[:len(data)/2]
+                        data_test = data[len(data)/2:]
+                        labels_test = labels[len(data)/2:]
+
                         #print rdd_join.coalesce(1).glom().collect()   # .glom()  # coalesce to reduce  no of partitions
-                        result = self.load_data_into_tensorflow(data, labels)
+
+                        train_c, test_c, train_a, test_a, training_iter, epoch_size = \
+                            self.load_data_into_tensorflow(data_train, data_test, labels_train, labels_test)
 
                         if len_nm < self.limit:
                             break
@@ -573,9 +645,9 @@ def parse_args():
                         help='port of InfluxDB http API')
     parser.add_argument('--configfile', type=str, required=False, default='/home/vagrant/yarnml/config.txt',
                         help='path to config file containing username & password')
-    parser.add_argument('--time1', type=int, required=False, default=1491030086000000000,
+    parser.add_argument('--time1', type=int, required=False, default=1501758105000000000,
                         help='time to fetch data from influxdb from')
-    parser.add_argument('--time2', type=int, required=False, default=1501031301000000000,
+    parser.add_argument('--time2', type=int, required=False, default=1502196168000000000,
                         help='time to fetch data from influxdb from')
 
 
