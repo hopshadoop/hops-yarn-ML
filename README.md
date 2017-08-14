@@ -9,12 +9,12 @@ The credentials information of databases if read from a congif.txt file
 
 Input parameters:
 
-Start timestamp: time1 
-End timestamp:        time2 
+Start timestamp: time1 <br />
+End timestamp:        time2 <br />
 Time is in seconds but we need to provide in the following format e.g 1501758105000000000
 
-How to use:
+How to use: <br />
 /srv/hops/spark-2.1.0-bin-without-hadoop/bin/spark-submit yarn_machine_learning.py
 
-Note:
+Note: <br />
 At the moment it is designed to predict one label that is 'PCpuUsagePercentAvgPercents', average cpu utilization in percentage. 
