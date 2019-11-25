@@ -1,6 +1,6 @@
 # hops-yarn-ML
 
-This project collects useful metrics from InfluxDB coming from Resource Manager, Node Manager, Spark through Graphite and Telegraf and also from MySQL cluster and then process the data to feed into Tensorflow to build a fully connected Feedforward Neural Network for predicting memoery and CPU utilization for applications at container level.
+This project collects useful metrics from InfluxDB coming from Resource Manager, Node Manager, Spark through Graphite and Telegraf and also from MySQL cluster and then processes the data to feed into Tensorflow to build a fully connected Feedforward Neural Network for predicting memory and CPU utilization for applications at the container level.
 
 The data processing, cleansing and aggregation is done using pyspark and machine learning model is built on Tensorflow. The data is read in batches from the databases and offset is used to keep track of the subsequent batches till it reads all the data.
 
